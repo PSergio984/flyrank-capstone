@@ -1,0 +1,26 @@
+{
+  "name": "flyrank-wk-1",
+  "version": "1.0.0",
+  "description": "FlyRank BE-01 — Express.js API with two JSON endpoints",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PSergio984/flyrank-wk-1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/PSergio984/flyrank-wk-1/issues"
+  },
+  "homepage": "https://github.com/PSergio984/flyrank-wk-1#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
