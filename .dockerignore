@@ -1,0 +1,15 @@
+# Keep the build context small and — critically — out of the image:
+# .env must never reach the image or the image build logs.
+node_modules
+.env
+.scratch
+.git
+.gitignore
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+server_out.txt
+server_err.txt
+screenshot.png
+.planning

@@ -1,0 +1,49 @@
+# One command for the whole stack: docker compose up
+#
+# - api:  the Express app (built from the Dockerfile)
+# - db:   Postgres 17 with a named volume so data survives restarts
+# - redis: present for the startup PING (later weeks use it properly)
+#
+# The app reaches the database by the service name "db" inside the compose
+# network — never localhost. These are dev-only credentials; the app itself
+# takes DATABASE_URL from its environment, never hardcoded.
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://postgres:dev@db:5432/tasks
+      REDIS_URL: redis://redis:6379
+    # Don't start until the database is accepting connections — the app
+    # itself fails fast at boot, so this ordering is what makes `up` clean.
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: tasks
+    # Named volume: the data lives outside the container's writable layer, so
+    # docker compose down && up (or removing the container) keeps the rows.
+    volumes:
+      - taskdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tasks"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  taskdata:

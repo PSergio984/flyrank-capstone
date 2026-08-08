@@ -9,3 +9,6 @@ node_modules/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Local-only compose port override for verification on this machine
+compose.override.yaml
