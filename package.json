@@ -21,7 +21,6 @@
   },
   "homepage": "https://github.com/PSergio984/flyrank-wk-1#readme",
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pg": "^8.22.0",

@@ -1,8 +1,10 @@
-// Repository factory — the only place that decides which storage engine the
+// Repository factory — the single place that knows which storage engine the
 // app uses. It reads DATABASE_URL (from .env, which is gitignored) and returns
 // the matching adapter. Everything else in the codebase just calls the
 // repository interface, so switching engines never touches the routes.
-const { createTaskRepository: createSqliteRepository } = require('./sqlite');
+//
+// Only Postgres is wired here now. The SQLite adapter used to be chosen from
+// this file too — git history keeps it as the A2 reference.
 const { createTaskRepository: createPostgresRepository } = require('./postgres');
 
 function createRepository() {
@@ -12,14 +14,10 @@ function createRepository() {
       'DATABASE_URL is not set. Copy .env.example to .env and fill in a connection string.'
     );
   }
-  if (url.startsWith('postgres')) {
-    return createPostgresRepository(url);
+  if (!url.startsWith('postgres')) {
+    throw new Error(`Unsupported DATABASE_URL scheme: ${url.split(':')[0]} — expected postgres://`);
   }
-  if (url.startsWith('sqlite')) {
-    // sqlite://tasks.db → the file path; used for local runs without Docker.
-    return createSqliteRepository(url.replace(/^sqlite:\/\//, '') || 'tasks.db');
-  }
-  throw new Error(`Unsupported DATABASE_URL scheme: ${url.split(':')[0]}`);
+  return createPostgresRepository(url);
 }
 
 module.exports = { createRepository };

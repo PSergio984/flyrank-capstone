@@ -1,18 +1,14 @@
 // Task API — Express CRUD server for tasks.
 //
-// W3 (A3): the storage layer now lives in repository/ — one adapter per engine
-// (SQLite here, Postgres from Stage 2 on). The routes below only speak the
-// repository interface: validation and status codes stay here, SQL lives in
-// the adapter. This is why "switch storage" changes exactly one module.
+// Storage lives in repository/ — one adapter per engine, chosen by the
+// repository factory from DATABASE_URL (.env). The routes below only speak
+// the repository interface: validation and status codes stay here, SQL lives
+// in the adapter. That is why "switch storage" changes exactly one module.
 const express = require('express');
 require('dotenv').config(); // load DATABASE_URL / PORT from .env (gitignored)
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
-// Stage 2 — reads are served from Postgres; writes are still on SQLite until
-// Stage 3 finishes the swap. Both are the same repository interface, so the
-// routes below don't know (or care) which engine backs them.
-const { createTaskRepository: createPostgresRepository } = require('./repository/postgres');
-const { createTaskRepository: createSqliteRepository } = require('./repository/sqlite');
+const { createRepository } = require('./repository');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -27,12 +23,12 @@ app.use(express.json());
 // before the api starts (see compose.yaml).
 // ---------------------------------------------------------------------------
 async function main() {
-  // Stage 2 — both engines are alive: Postgres takes the reads, SQLite still
-  // holds the writes until Stage 3. DATABASE_URL comes from .env (gitignored).
-  const pgRepo = createPostgresRepository(process.env.DATABASE_URL);
-  const sqliteRepo = createSqliteRepository('tasks.db');
-  await pgRepo.ensureSchemaAndSeed();
-  await sqliteRepo.ensureSchemaAndSeed();
+  // The factory picks the storage engine from DATABASE_URL (in .env, which is
+  // gitignored — .env.example shows the keys). Fail fast: if the database is
+  // unreachable at boot we log and exit instead of half-running; docker
+  // compose orders the stack so the db is healthy before the api starts.
+  const repo = createRepository();
+  await repo.ensureSchemaAndSeed();
 
   // Stage 5 — Swagger UI at /docs.
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
@@ -81,7 +77,7 @@ async function main() {
       filters.search = word;
     }
 
-    res.json(await pgRepo.list(filters));
+    res.json(await repo.list(filters));
   });
 
   // -------------------------------------------------------------------------
@@ -94,7 +90,7 @@ async function main() {
       return res.status(400).json({ error: 'title is required and cannot be empty' });
     }
 
-    const task = await sqliteRepo.create(String(title).trim());
+    const task = await repo.create(String(title).trim());
     res.status(201).json(task);
   });
 
@@ -103,12 +99,12 @@ async function main() {
   // not read as an id.
   // -------------------------------------------------------------------------
   app.get('/stats', async (req, res) => {
-    res.json(await pgRepo.stats());
+    res.json(await repo.stats());
   });
 
   // Extras — reset back to the 3 example tasks. Handy for demos.
   app.post('/reset', async (req, res) => {
-    res.json(await sqliteRepo.reset());
+    res.json(await repo.reset());
   });
 
   // -------------------------------------------------------------------------
@@ -119,7 +115,7 @@ async function main() {
     if (id === null) {
       return res.status(404).json({ error: `Task ${req.params.id} not found` });
     }
-    const task = await pgRepo.getById(id);
+    const task = await repo.getById(id);
     if (!task) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
@@ -158,7 +154,7 @@ async function main() {
       patch.done = body.done;
     }
 
-    const task = await sqliteRepo.update(id, patch);
+    const task = await repo.update(id, patch);
     if (!task) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
@@ -171,7 +167,7 @@ async function main() {
       return res.status(404).json({ error: `Task ${req.params.id} not found` });
     }
 
-    const removed = await sqliteRepo.remove(id);
+    const removed = await repo.remove(id);
     if (!removed) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
