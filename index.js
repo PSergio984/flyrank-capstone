@@ -121,6 +121,28 @@ app.get('/tasks', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Stage 2 — Create
+// ---------------------------------------------------------------------------
+app.post('/tasks', (req, res) => {
+  const { title } = req.body;
+
+  if (title === undefined || title === null || String(title).trim() === '') {
+    return res.status(400).json({ error: 'title is required and cannot be empty' });
+  }
+
+  // Insert a new row; SQLite assigns the next id and timestamp defaults.
+  const result = db
+    .prepare('INSERT INTO tasks (title, done) VALUES (?, 0)')
+    .run(String(title).trim());
+
+  const row = db
+    .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`)
+    .get(result.lastInsertRowid);
+
+  res.status(201).json(rowToTask(row));
+});
+
+// ---------------------------------------------------------------------------
 // Stage 1 — Read one
 // ---------------------------------------------------------------------------
 app.get('/tasks/:id', (req, res) => {
