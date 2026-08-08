@@ -16,7 +16,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 # COPY of a directory keeps its structure — repository/ stays repository/.
-COPY index.js openapi.json ./
+COPY index.js redis-ping.js openapi.json ./
 COPY repository ./repository
 USER node
 EXPOSE 3000

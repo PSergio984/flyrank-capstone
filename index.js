@@ -9,6 +9,7 @@ require('dotenv').config(); // load DATABASE_URL / PORT from .env (gitignored)
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const { createRepository } = require('./repository');
+const { pingRedisOnce } = require('./redis-ping');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -29,6 +30,8 @@ async function main() {
   // compose orders the stack so the db is healthy before the api starts.
   const repo = createRepository();
   await repo.ensureSchemaAndSeed();
+  // Stretch extra: prove Redis is reachable, but never block boot on it.
+  await pingRedisOnce();
 
   // Stage 5 — Swagger UI at /docs.
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
@@ -42,8 +45,16 @@ async function main() {
     });
   });
 
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
+  // Stretch extra — real health check: the DB probe runs SELECT 1 through the
+  // repository. Boot fails fast when the DB is down, so a 503 here means the
+  // database died after startup — exactly what a deploy gate should catch.
+  app.get('/health', async (req, res) => {
+    try {
+      await repo.ping();
+      res.json({ status: 'ok', db: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error', db: 'unreachable' });
+    }
   });
 
   // Parse a :id path segment into a positive integer. Anything else (NaN,

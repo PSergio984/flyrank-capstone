@@ -43,6 +43,13 @@ function rowToTask(row) {
 function createTaskRepository(connectionString) {
   const pool = new Pool({ connectionString });
 
+  // Without this handler, a client that loses its connection outside a query
+  // (e.g. the database stops) emits an unhandled pool 'error' event and
+  // crashes the whole process. With it, /health can report the dead database.
+  pool.on('error', (err) => {
+    console.error('Postgres pool error:', err.message);
+  });
+
   return {
     // Boot: create the table if missing, then seed the three example tasks
     // only when the table is empty. Runs once at startup, before listening.
