@@ -1,6 +1,9 @@
 node_modules/
 .env
 
+# Wayfinder private tracker
+.scratch/
+
 # SQLite database
 *.db
 *.db-journal
