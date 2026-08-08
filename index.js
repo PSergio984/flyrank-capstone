@@ -157,6 +157,68 @@ app.get('/tasks/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Stage 3 — Update & Delete (SQL)
+// ---------------------------------------------------------------------------
+app.put('/tasks/:id', (req, res) => {
+  const id = Number(req.params.id);
+  // Load the current row first so we can 404, then merge partial updates.
+  const row = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`).get(id);
+
+  if (!row) {
+    return res.status(404).json({ error: `Task ${id} not found` });
+  }
+
+  const { title, done } = req.body ?? {};
+  const hasTitle = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'title');
+  const hasDone = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'done');
+
+  // Client may send title, done, or both — at least one is required.
+  if (!hasTitle && !hasDone) {
+    return res.status(400).json({ error: 'request body must include title and/or done' });
+  }
+
+  // Start from existing values; overwrite only fields present in the body.
+  let nextTitle = row.title;
+  let nextDone = row.done;
+
+  if (hasTitle) {
+    if (title === null || String(title).trim() === '') {
+      return res.status(400).json({ error: 'title cannot be empty' });
+    }
+    nextTitle = String(title).trim();
+  }
+
+  if (hasDone) {
+    if (typeof done !== 'boolean') {
+      return res.status(400).json({ error: 'done must be a boolean' });
+    }
+    // SQLite stores done as 0/1, not true/false.
+    nextDone = done ? 1 : 0;
+  }
+
+  // Bump updated_at whenever the row changes; created_at stays as-is.
+  db.prepare(
+    `UPDATE tasks SET title = ?, done = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(nextTitle, nextDone, id);
+
+  const updated = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`).get(id);
+  res.json(rowToTask(updated));
+});
+
+app.delete('/tasks/:id', (req, res) => {
+  const id = Number(req.params.id);
+  // run() returns { changes } — how many rows were actually deleted.
+  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: `Task ${id} not found` });
+  }
+
+  // 204 = success, no response body.
+  res.status(204).send();
+});
+
+// ---------------------------------------------------------------------------
 // Stage 0 — start the server
 // ---------------------------------------------------------------------------
 app.listen(port, () => {
