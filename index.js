@@ -2,6 +2,8 @@
 // Stages 0–5 of the W3 assignment, plus the optional extras.
 const express = require('express');
 const Database = require('better-sqlite3'); // sync SQLite driver (no async/await needed)
+const swaggerUi = require('swagger-ui-express');
+const openapi = require('./openapi.json');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -59,6 +61,21 @@ const countTasks = db.prepare('SELECT COUNT(*) AS count FROM tasks');
 if (countTasks.get().count === 0) {
   db.transaction(seedTasks)(SEED_TASKS);
 }
+
+// Wipe the table and restore the three example tasks (fresh timestamps).
+function resetTasks() {
+  const clear = db.prepare('DELETE FROM tasks');
+  const reset = db.transaction((tasks) => {
+    clear.run();
+    seedTasks(tasks);
+  });
+  reset(SEED_TASKS);
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5 — Swagger UI at /docs
+// ---------------------------------------------------------------------------
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
 // ---------------------------------------------------------------------------
 // Stage 1 — the front door
@@ -140,6 +157,34 @@ app.post('/tasks', (req, res) => {
     .get(result.lastInsertRowid);
 
   res.status(201).json(rowToTask(row));
+});
+
+// ---------------------------------------------------------------------------
+// Stage 5 — extras: stats and reset. Declared before "/tasks/:id" so the
+// names aren't read as an id.
+// ---------------------------------------------------------------------------
+app.get('/stats', (req, res) => {
+  // COUNT() in SQL — no loading every row into JavaScript to tally.
+  const stats = db
+    .prepare(
+      `
+      SELECT
+        COUNT(*) AS total,
+        COUNT(CASE WHEN done = 1 THEN 1 END) AS done,
+        COUNT(CASE WHEN done = 0 THEN 1 END) AS open
+      FROM tasks
+    `
+    )
+    .get();
+
+  res.json(stats);
+});
+
+// Extras — reset back to the 3 example tasks. Handy for demos.
+app.post('/reset', (req, res) => {
+  resetTasks();
+  const rows = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY id`).all();
+  res.json(rows.map(rowToTask));
 });
 
 // ---------------------------------------------------------------------------
