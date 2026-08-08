@@ -4,8 +4,8 @@
   "description": "FlyRank BE-01 — Express.js API with two JSON endpoints",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node index.js",
+    "dev": "node --watch index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -21,6 +21,8 @@
   },
   "homepage": "https://github.com/PSergio984/flyrank-wk-1#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "better-sqlite3": "^12.11.1",
+    "express": "^5.2.1",
+    "swagger-ui-express": "^5.0.1"
   }
 }
