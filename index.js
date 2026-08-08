@@ -61,6 +61,80 @@ if (countTasks.get().count === 0) {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 1 — the front door
+// ---------------------------------------------------------------------------
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Task API',
+    version: '1.0',
+    endpoints: ['/tasks', '/stats', '/reset'],
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Convert a SQLite row (done is 0/1) into the JSON shape the API returns.
+function rowToTask(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    done: Boolean(row.done),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+const TASK_COLUMNS = 'id, title, done, created_at, updated_at';
+
+// ---------------------------------------------------------------------------
+// Stage 1 — Read: list + single task (with optional filtering/search extras)
+// ---------------------------------------------------------------------------
+app.get('/tasks', (req, res) => {
+  // Start with every row; optional filters narrow the SQL below.
+  let sql = `SELECT ${TASK_COLUMNS} FROM tasks WHERE 1=1`;
+  const params = [];
+
+  // Extras: GET /tasks?done=true  → only finished (or only open) tasks.
+  if (req.query.done !== undefined) {
+    if (req.query.done !== 'true' && req.query.done !== 'false') {
+      return res.status(400).json({ error: 'done must be true or false' });
+    }
+    sql += ' AND done = ?';
+    params.push(req.query.done === 'true' ? 1 : 0);
+  }
+
+  // Extras: GET /tasks?search=milk → tasks whose title contains the word.
+  if (req.query.search !== undefined) {
+    const word = String(req.query.search).trim();
+    if (word === '') {
+      return res.status(400).json({ error: 'search must not be empty' });
+    }
+    sql += ' AND LOWER(title) LIKE ?';
+    params.push(`%${word.toLowerCase()}%`);
+  }
+
+  sql += ' ORDER BY id';
+  const rows = db.prepare(sql).all(...params);
+  res.json(rows.map(rowToTask));
+});
+
+// ---------------------------------------------------------------------------
+// Stage 1 — Read one
+// ---------------------------------------------------------------------------
+app.get('/tasks/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`).get(id);
+
+  if (!row) {
+    return res.status(404).json({ error: `Task ${id} not found` });
+  }
+
+  res.json(rowToTask(row));
+});
+
+// ---------------------------------------------------------------------------
 // Stage 0 — start the server
 // ---------------------------------------------------------------------------
 app.listen(port, () => {
