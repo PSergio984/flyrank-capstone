@@ -8,7 +8,11 @@ const express = require('express');
 require('dotenv').config(); // load DATABASE_URL / PORT from .env (gitignored)
 const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
-const { createRepository } = require('./repository');
+// Stage 2 — reads are served from Postgres; writes are still on SQLite until
+// Stage 3 finishes the swap. Both are the same repository interface, so the
+// routes below don't know (or care) which engine backs them.
+const { createTaskRepository: createPostgresRepository } = require('./repository/postgres');
+const { createTaskRepository: createSqliteRepository } = require('./repository/sqlite');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -23,8 +27,12 @@ app.use(express.json());
 // before the api starts (see compose.yaml).
 // ---------------------------------------------------------------------------
 async function main() {
-  const repo = createRepository();
-  await repo.ensureSchemaAndSeed();
+  // Stage 2 — both engines are alive: Postgres takes the reads, SQLite still
+  // holds the writes until Stage 3. DATABASE_URL comes from .env (gitignored).
+  const pgRepo = createPostgresRepository(process.env.DATABASE_URL);
+  const sqliteRepo = createSqliteRepository('tasks.db');
+  await pgRepo.ensureSchemaAndSeed();
+  await sqliteRepo.ensureSchemaAndSeed();
 
   // Stage 5 — Swagger UI at /docs.
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
@@ -73,7 +81,7 @@ async function main() {
       filters.search = word;
     }
 
-    res.json(await repo.list(filters));
+    res.json(await pgRepo.list(filters));
   });
 
   // -------------------------------------------------------------------------
@@ -86,7 +94,7 @@ async function main() {
       return res.status(400).json({ error: 'title is required and cannot be empty' });
     }
 
-    const task = await repo.create(String(title).trim());
+    const task = await sqliteRepo.create(String(title).trim());
     res.status(201).json(task);
   });
 
@@ -95,12 +103,12 @@ async function main() {
   // not read as an id.
   // -------------------------------------------------------------------------
   app.get('/stats', async (req, res) => {
-    res.json(await repo.stats());
+    res.json(await pgRepo.stats());
   });
 
   // Extras — reset back to the 3 example tasks. Handy for demos.
   app.post('/reset', async (req, res) => {
-    res.json(await repo.reset());
+    res.json(await sqliteRepo.reset());
   });
 
   // -------------------------------------------------------------------------
@@ -111,7 +119,7 @@ async function main() {
     if (id === null) {
       return res.status(404).json({ error: `Task ${req.params.id} not found` });
     }
-    const task = await repo.getById(id);
+    const task = await pgRepo.getById(id);
     if (!task) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
@@ -150,7 +158,7 @@ async function main() {
       patch.done = body.done;
     }
 
-    const task = await repo.update(id, patch);
+    const task = await sqliteRepo.update(id, patch);
     if (!task) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
@@ -163,7 +171,7 @@ async function main() {
       return res.status(404).json({ error: `Task ${req.params.id} not found` });
     }
 
-    const removed = await repo.remove(id);
+    const removed = await sqliteRepo.remove(id);
     if (!removed) {
       return res.status(404).json({ error: `Task ${id} not found` });
     }
