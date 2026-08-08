@@ -18,10 +18,6 @@ app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Stage 1 — connect, create the table, seed on first run, then serve.
-// DATABASE_URL comes from .env (gitignored; .env.example shows the keys).
-// Fail fast: if the database is unreachable at boot we log and exit instead
-// of half-running — docker compose orders the stack so the db is healthy
-// before the api starts (see compose.yaml).
 // ---------------------------------------------------------------------------
 async function main() {
   // The factory picks the storage engine from DATABASE_URL (in .env, which is

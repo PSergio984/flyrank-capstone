@@ -108,7 +108,7 @@ docker compose exec db psql -U postgres -d tasks -c "SELECT * FROM tasks;"
   ```
 
   The index is deliberately *not* part of the base schema — on a three-row table the planner would (correctly) ignore it; it earns its keep at real scale. (Note: with a 50/50 `done` split the planner also correctly ignores the index — selectivity is what makes indexes useful.)
-- **Multi-stage Dockerfile** — the image is built in two stages: a builder that installs dependencies, and a lean runner that copies only production `node_modules` and the app files, running as a non-root user. Measured on this machine: single-stage naive build **286 MB** vs multi-stage **270 MB**. The gap is modest because this app has no dev-only dependencies (typescript, compilers, test frameworks) — with a real build toolchain the multi-stage saving is far bigger, and it also guarantees nothing like `.env` or build context leaks into the image.
+- **Multi-stage Dockerfile** — the image is built in two stages: a builder that installs dependencies, and a lean runner that copies the builder's production `node_modules` and the app files, running as a non-root user. Measured on this machine: single-stage naive build **286 MB** vs multi-stage **270 MB**. The gap is modest because this app has no dev-only dependencies (typescript, compilers, test frameworks) — with a real build toolchain the multi-stage saving is far bigger, and it also guarantees nothing like `.env` or build context leaks into the image.
 
 ## Local development without Docker
 

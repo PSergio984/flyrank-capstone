@@ -50,6 +50,17 @@ function createTaskRepository(connectionString) {
     console.error('Postgres pool error:', err.message);
   });
 
+  // Insert the three example tasks. Used on first boot (when the table is
+  // empty) and by /reset. No explicit ids — serial assigns 1, 2, 3 in order.
+  async function seedTasks() {
+    for (const task of SEED_TASKS) {
+      await pool.query('INSERT INTO tasks (title, done) VALUES ($1, $2)', [
+        task.title,
+        task.done,
+      ]);
+    }
+  }
+
   return {
     // Boot: create the table if missing, then seed the three example tasks
     // only when the table is empty. Runs once at startup, before listening.
@@ -66,13 +77,8 @@ function createTaskRepository(connectionString) {
       `);
       const { rows } = await pool.query('SELECT COUNT(*)::int AS count FROM tasks');
       if (rows[0].count === 0) {
-        // No explicit ids: on an empty table serial assigns 1, 2, 3 in order.
-        for (const task of SEED_TASKS) {
-          await pool.query('INSERT INTO tasks (title, done) VALUES ($1, $2)', [
-            task.title,
-            task.done,
-          ]);
-        }
+        // First run only — restarts must not duplicate the seeds.
+        await seedTasks();
       }
     },
 
@@ -149,12 +155,7 @@ function createTaskRepository(connectionString) {
     // next POST from colliding with the reseeded ids.
     async reset() {
       await pool.query('TRUNCATE tasks RESTART IDENTITY');
-      for (const task of SEED_TASKS) {
-        await pool.query('INSERT INTO tasks (title, done) VALUES ($1, $2)', [
-          task.title,
-          task.done,
-        ]);
-      }
+      await seedTasks();
       const { rows } = await pool.query(`SELECT ${TASK_COLUMNS} FROM tasks ORDER BY id`);
       return rows.map(rowToTask);
     },

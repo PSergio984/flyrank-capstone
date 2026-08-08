@@ -11,16 +11,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PSergio984/flyrank-wk-1.git"
+    "url": "git+https://github.com/PSergio984/flyrank-capstone.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/PSergio984/flyrank-wk-1/issues"
+    "url": "https://github.com/PSergio984/flyrank-capstone/issues"
   },
-  "homepage": "https://github.com/PSergio984/flyrank-wk-1#readme",
+  "homepage": "https://github.com/PSergio984/flyrank-capstone#readme",
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
