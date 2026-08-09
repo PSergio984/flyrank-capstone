@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
+    "start:auth": "node auth-server.js",
+    "dev:auth": "node --watch auth-server.js",
     "seed:demo": "node scripts/explain-demo.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -22,6 +24,7 @@
   },
   "homepage": "https://github.com/PSergio984/flyrank-capstone#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pg": "^8.22.0",
