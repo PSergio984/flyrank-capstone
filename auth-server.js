@@ -20,6 +20,33 @@ const supabase = createClient(
 app.use(express.json());
 
 // ---------------------------------------------------------------------------
+// Stage 4 — the guard extracted into reusable middleware. Applied to every
+// protected route, so route handlers never repeat token logic: by the time a
+// handler runs, the user is verified and sitting on req.user.
+// ---------------------------------------------------------------------------
+async function requireAuth(req, res, next) {
+  // The header must look exactly like "Bearer <token>".
+  const header = req.headers.authorization || '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  const token = match ? match[1] : null;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  // Ask the IdP whether this JWT is real, unexpired, and untampered.
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Verified — stash the user (and the raw token, for sign-out) on the request.
+  req.user = data.user;
+  req.token = token;
+  next();
+}
+
+// ---------------------------------------------------------------------------
 // Stage 1 — open auth: sign up & log in. Credentials go straight to Supabase;
 // this server never sees or stores passwords.
 // ---------------------------------------------------------------------------
@@ -67,34 +94,36 @@ app.post('/auth/login', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Stage 2 — the gates: public (no guard) vs protected (token required).
-// Verification of the token itself arrives in Stage 3.
+// Stage 2 — the gates: public (no guard) vs protected (middleware).
 // ---------------------------------------------------------------------------
 app.get('/public/info', (req, res) => {
   res.json({ message: 'Welcome stranger! This info is public.' });
 });
 
-app.get('/protected/profile', async (req, res) => {
-  // Extract the token from the Authorization header. Anything other than
-  // "Bearer <token>" is refused at the door — no token, no entry.
-  const header = req.headers.authorization || '';
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  const token = match ? match[1] : null;
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  // Stage 3 — the guard inspects the pass: ask the IdP whether this JWT is
-  // real, unexpired, and untampered. Tampered/expired tokens return an error.
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-
-  // Verified — hand back the user's secure metadata.
-  const { id, email, created_at } = data.user;
+// Stage 3/4 — requireAuth verifies the token before this handler ever runs.
+app.get('/protected/profile', requireAuth, (req, res) => {
+  const { id, email, created_at } = req.user;
   res.json({ id, email, created_at });
+});
+
+// Stage 4 — a second protected route, same middleware, zero duplicated logic.
+app.get('/protected/dashboard', requireAuth, (req, res) => {
+  res.json({
+    message: `Welcome back, ${req.user.email}!`,
+    protected_data: 'Only authenticated users can see this.',
+  });
+});
+
+// Stage 4 — logout: protected like every other guarded route. The middleware
+// guarantees the token is valid before we hand it back to Supabase to revoke
+// its session (admin.signOut revokes server-side by JWT, unlike the browser
+// signOut which only clears local storage).
+app.post('/auth/logout', requireAuth, async (req, res) => {
+  const { error } = await supabase.auth.admin.signOut(req.token);
+  if (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  res.status(204).send();
 });
 
 app.listen(port, () => {
