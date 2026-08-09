@@ -19,6 +19,53 @@ const supabase = createClient(
 
 app.use(express.json());
 
+// ---------------------------------------------------------------------------
+// Stage 1 — open auth: sign up & log in. Credentials go straight to Supabase;
+// this server never sees or stores passwords.
+// ---------------------------------------------------------------------------
+app.post('/auth/signup', async (req, res) => {
+  const { email, password } = req.body ?? {};
+
+  // Input validation: missing fields never reach the IdP.
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const { data, error } = await supabase.auth.signUp({ email, password });
+
+  if (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  // 201 Created — the user object Supabase just registered.
+  res.status(201).json(data.user);
+});
+
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body ?? {};
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    // Wrong password, unknown account, unconfirmed email — same answer.
+    return res.status(401).json({ error: 'Invalid login credentials' });
+  }
+
+  // 200 OK — hand the client the JWTs it will present to protected routes.
+  res.json({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    user: data.user,
+  });
+});
+
 app.listen(port, () => {
   console.log(`Server running and connected to Supabase on port ${port}`);
 });
