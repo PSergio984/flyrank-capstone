@@ -6,6 +6,8 @@
 const express = require('express');
 require('dotenv').config(); // load SUPABASE_URL / SUPABASE_KEY / PORT from .env (gitignored)
 const { createClient } = require('@supabase/supabase-js');
+const swaggerUi = require('swagger-ui-express');
+const openapi = require('./openapi-auth.json');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -125,6 +127,11 @@ app.post('/auth/logout', requireAuth, async (req, res) => {
   }
   res.status(204).send();
 });
+
+// Stage 5 — Swagger UI at /docs (spec: openapi-auth.json). Protected routes
+// are linked to the bearerAuth security scheme, which renders the Authorize
+// padlock in the UI.
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
 app.listen(port, () => {
   console.log(`Server running and connected to Supabase on port ${port}`);
