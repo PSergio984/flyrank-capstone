@@ -117,3 +117,101 @@ cp .env.example .env   # point DATABASE_URL at any reachable Postgres
 npm install
 npm start              # or: npm run dev
 ```
+
+---
+
+# Secure Auth API
+
+A Supabase-backed authentication API — sign up, log in, log out, and access protected routes that require a valid JWT. Built as the FlyRank Auth assignment (BE-02): instead of writing cryptography by hand, Supabase is the **Identity Provider (IdP)** — it stores accounts, hashes passwords, and issues signed JWTs. This server only verifies them.
+
+The trust triangle:
+
+```
+Client ──email+password──> Supabase Auth (IdP) ──JWT──> this server ──getUser()──> Supabase
+```
+
+## How it works
+
+- **Sign up / Log in**: the client sends credentials to your backend, which forwards them to Supabase (the server never sees or stores a password).
+- **The token**: Supabase validates the credentials and returns a JWT (access token) plus a refresh token.
+- **The request**: the client attaches the JWT as `Authorization: Bearer <token>`.
+- **Verification**: `requireAuth` middleware extracts the token and asks Supabase's `getUser()` whether it is valid. If it is, the route handler runs; otherwise the client gets `401`.
+
+## Setup
+
+1. Create a free project at [supabase.com](https://supabase.com) (or reuse an existing one).
+2. Copy the environment template: `cp .env.example .env`
+3. Fill in your project values (Project Settings → API):
+4. In the dashboard, disable **Authentication → Providers → Email → Confirm email** so signup can be followed by an immediate login.
+
+| Variable | Example | Used for |
+|----------|---------|----------|
+| `SUPABASE_URL` | `https://your-project-ref.supabase.co` | Your Supabase project URL |
+| `SUPABASE_KEY` | `eyJhbGciOiJIUzI1NiIs...` | The **anon** (publishable) API key — safe to expose to clients; Row Level Security protects the data |
+| `PORT` | `3000` | HTTP port |
+
+`.env` is gitignored — never commit your Supabase keys. The anon key is a publishable key (not a secret), but your project URL + key pair is still your project's identity, so it stays out of git like everything else in `.env`.
+
+## Run it
+
+```bash
+npm install
+npm run start:auth    # or: npm run dev:auth for auto-reload
+```
+
+The server logs `Server running and connected to Supabase on port 3000` and Swagger UI lives at `http://localhost:3000/docs`.
+
+> Note: `npm start` runs the Task API above, `npm run start:auth` runs this Auth API — both use `PORT` from `.env`, so run one at a time.
+
+## Quick test
+
+```bash
+# Sign up (201)
+curl -i -X POST http://localhost:3000/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"password123"}'
+
+# Log in (200) — copy the access_token from the response
+curl -i -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"password123"}'
+
+# Public route (200) — no token needed
+curl -i http://localhost:3000/public/info
+
+# Protected route — 401 without a token
+curl -i http://localhost:3000/protected/profile
+
+# Protected route (200) — paste the access_token
+curl -i http://localhost:3000/protected/profile \
+  -H "Authorization: Bearer <PASTE_ACCESS_TOKEN>"
+
+# Log out (204) — afterwards the same token is rejected
+curl -i -X POST http://localhost:3000/auth/logout \
+  -H "Authorization: Bearer <PASTE_ACCESS_TOKEN>"
+```
+
+> Supabase blocks signups from reserved domains like `example.com` (`Email address is invalid`) — use a normal domain such as `you@gmail.com` for testing.
+
+## API reference
+
+| Method | Path | Auth | Description | Success | Errors |
+|--------|------|------|-------------|---------|--------|
+| `POST` | `/auth/signup` | Open | Create a new user account — body `{"email", "password"}` | `201` user object | `400` missing fields / Supabase rejection |
+| `POST` | `/auth/login` | Open | Authenticate user and return JWTs — body `{"email", "password"}` | `200` `access_token`, `refresh_token`, `user` | `400` missing fields, `401` wrong credentials |
+| `POST` | `/auth/logout` | Bearer | Terminate the user session (revokes it in Supabase) | `204` no content | `400` revoke failure, `401` bad token |
+| `GET` | `/protected/profile` | Bearer | Read private profile data (id, email, created_at) | `200` | `401` missing / invalid / expired token |
+| `GET` | `/protected/dashboard` | Bearer | Demo protected route — same middleware, no duplicated logic | `200` | `401` missing / invalid / expired token |
+| `GET` | `/public/info` | None | Public message, no authentication | `200` | — |
+
+Status code contract: **201** signup, **200** successful login/read, **204** logout, **400** missing inputs, **401** missing/incorrect/expired token.
+
+## Why middleware
+
+Every protected route runs through the same `requireAuth` function (`auth-server.js`): it parses the `Authorization: Bearer <token>` header, calls `supabase.auth.getUser(token)`, and attaches the verified user to `req.user`. Route handlers stay small — they run only after the guard has passed, and a new protected route is just one `requireAuth` argument away.
+
+## Swagger UI
+
+![Swagger UI screenshot](docs-screenshot.png)
+
+The lock icon next to the `/protected/*` routes means they need a token. Click **Authorize**, paste an `access_token` from `/auth/login`, then **Try it out** on `/protected/profile` directly from the browser.

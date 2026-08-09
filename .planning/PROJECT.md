@@ -1,12 +1,12 @@
-# FlyRank BE-01
+# FlyRank BE-01 / BE-02
 
 ## What This Is
 
-A minimal Express.js backend with two JSON endpoints, built as the Week 1 submission for the FlyRank Backend AI Engineering Internship (Assignment BE-01). Demonstrates the HTTP request-response cycle using GET / and GET /about routes.
+The FlyRank Backend AI Engineering Internship capstone repo. BE-01: a minimal Express.js backend demonstrating the HTTP request-response cycle. BE-02 (current milestone): a Supabase-backed authentication API — sign up, log in, log out, and JWT-protected routes with reusable middleware, documented in Swagger UI.
 
 ## Core Value
 
-Ship a working, documented Express.js API with two clean JSON endpoints that correctly demonstrate the HTTP request-response cycle.
+Ship working, documented Express.js APIs — first the request-response cycle, then secure authentication with Supabase as the Identity Provider, using clean status-code contracts (201/200/204/400/401) and reusable auth middleware.
 
 ## Requirements
 
