@@ -74,7 +74,7 @@ app.get('/public/info', (req, res) => {
   res.json({ message: 'Welcome stranger! This info is public.' });
 });
 
-app.get('/protected/profile', (req, res) => {
+app.get('/protected/profile', async (req, res) => {
   // Extract the token from the Authorization header. Anything other than
   // "Bearer <token>" is refused at the door — no token, no entry.
   const header = req.headers.authorization || '';
@@ -85,8 +85,16 @@ app.get('/protected/profile', (req, res) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  // Stage 3 replaces the placeholder below with real verification.
-  res.json({ token_received: true, note: 'verification arrives in Stage 3' });
+  // Stage 3 — the guard inspects the pass: ask the IdP whether this JWT is
+  // real, unexpired, and untampered. Tampered/expired tokens return an error.
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Verified — hand back the user's secure metadata.
+  const { id, email, created_at } = data.user;
+  res.json({ id, email, created_at });
 });
 
 app.listen(port, () => {
