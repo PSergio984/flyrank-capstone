@@ -66,6 +66,29 @@ app.post('/auth/login', async (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Stage 2 — the gates: public (no guard) vs protected (token required).
+// Verification of the token itself arrives in Stage 3.
+// ---------------------------------------------------------------------------
+app.get('/public/info', (req, res) => {
+  res.json({ message: 'Welcome stranger! This info is public.' });
+});
+
+app.get('/protected/profile', (req, res) => {
+  // Extract the token from the Authorization header. Anything other than
+  // "Bearer <token>" is refused at the door — no token, no entry.
+  const header = req.headers.authorization || '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  const token = match ? match[1] : null;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  // Stage 3 replaces the placeholder below with real verification.
+  res.json({ token_received: true, note: 'verification arrives in Stage 3' });
+});
+
 app.listen(port, () => {
   console.log(`Server running and connected to Supabase on port ${port}`);
 });
