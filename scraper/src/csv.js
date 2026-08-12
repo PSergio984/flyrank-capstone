@@ -1,18 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { bookSchema } from './schema.js';
 
-const FIELDS = [
-  'title',
-  'product_url',
-  'price_text',
-  'price_gbp',
-  'availability_text',
-  'rating_text',
-  'description',
-  'source_page',
-  'fetched_at',
-];
+const FIELDS = Object.keys(bookSchema.shape);
 
 function csvEscape(value) {
   if (value === null || value === undefined) return '';

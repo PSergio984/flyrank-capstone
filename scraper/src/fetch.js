@@ -70,12 +70,12 @@ export async function politeFetch(url, { cachePath = null, stats = null } = {}) 
     } catch (err) {
       if (err.status === 404 || err.status === 403) throw err;
       lastError = err;
-      if (attempt < MAX_ATTEMPTS) {
-        const retryAfterMs = err.status ? retryAfterSeconds(err) : null;
+      if (attempt < MAX_ATTEMPTS && isRetryable(err)) {
+        const retryAfter = retryAfterMs(err);
         const jitter = Math.random() * 500;
         const backoff = Math.min(5000, BASE_BACKOFF_MS * 2 ** (attempt - 1)) + jitter;
-        const delay = retryAfterMs ?? backoff;
-        logAttempt({ url, attempt, status: err.status, retryAfterMs, error: err });
+        const delay = retryAfter ?? backoff;
+        logAttempt({ url, attempt, status: err.status, retryAfterMs: retryAfter, error: err });
         await sleep(delay);
       }
     }
@@ -84,9 +84,14 @@ export async function politeFetch(url, { cachePath = null, stats = null } = {}) 
   throw lastError;
 }
 
-function retryAfterSeconds(err) {
+function retryAfterMs(err) {
   const header = err.response?.headers?.get?.('retry-after');
   if (!header) return null;
   const seconds = Number(header);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
+  return null;
 }
+
+const isRetryable = (err) => !err.status || err.status >= 500 || err.status === 429;

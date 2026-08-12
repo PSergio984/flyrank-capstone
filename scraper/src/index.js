@@ -11,7 +11,9 @@ const startedAt = new Date();
 const stats = { pagesFetched: 0, cacheHits: 0, failedPages: [] };
 const fetchHtml = (url, opts) => politeFetch(url, { ...opts, stats });
 
-const { links } = await discoverCatalogue(fetchHtml);
+const { links, pages } = await discoverCatalogue(fetchHtml, { stats });
+const uniqueUrls = new Set(links.map((l) => l.url));
+console.log(`catalogue_pages=${pages.length} discovered=${links.length} unique_urls=${uniqueUrls.size}`);
 
 // Optional extra URLs injected via env (used to prove one bad page
 // never kills the run): A9_EXTRA_URLS=https://books.toscrape.com/...

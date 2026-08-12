@@ -58,13 +58,21 @@ Node.js 20+ (built-in `fetch`), **Cheerio** for HTML parsing, **Zod** for schema
 - At least 500 ms between real requests to the site
 - Status code checked before parsing — only 200 is a page
 - Cache-first development: HTML saved under `cache/`; reruns read the cache, not the site
-- One retry on timeout/5xx; 404 and 403 are never retried
+- Retries: up to 2 retries on timeout/5xx/429 with exponential backoff + jitter,
+  respecting the `Retry-After` header; 404, 403, and other 4xx are never retried
 
 ## Failure handling
 
 Each book page is fetched and extracted independently — one broken page is logged and
 skipped; the other records survive. Invalid records (fail schema check) land in
 `errors.json` with the reason, never in `books.json`.
+
+## CSV export
+
+`output/books.csv` is written from the same validated records. Flattening:
+multi-line values collapse to single spaces, and fields containing commas, quotes, or
+newlines are quoted with doubled quotes — one book stays one row. The column order
+follows the record schema.
 
 ## Proof
 

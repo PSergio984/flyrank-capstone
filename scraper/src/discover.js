@@ -10,13 +10,20 @@ export const cachePathForCataloguePage = (index) => `cache/catalogue-page-${inde
  * Returns { pages, links } where pages = [{ url, cachePath }] and
  * links = [{ url, sourcePage }] — every book link absolutized, deduped.
  */
-export async function discoverCatalogue(fetchHtml) {
+export async function discoverCatalogue(fetchHtml, { stats = null } = {}) {
   const pages = [];
   const links = [];
   let url = FIRST_PAGE;
 
   for (let pageIndex = 1; pageIndex <= MAX_CATALOGUE_PAGES; pageIndex++) {
-    const { html } = await fetchHtml(url, { cachePath: cachePathForCataloguePage(pageIndex) });
+    let html;
+    try {
+      ({ html } = await fetchHtml(url, { cachePath: cachePathForCataloguePage(pageIndex) }));
+    } catch (err) {
+      stats?.failedPages.push({ url, error: err.message });
+      console.log(`FAILED ${url}: ${err.message}`);
+      break;
+    }
     const page = { url, cachePath: cachePathForCataloguePage(pageIndex) };
     pages.push(page);
 
