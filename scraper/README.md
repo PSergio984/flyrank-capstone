@@ -68,15 +68,49 @@ skipped; the other records survive. Invalid records (fail schema check) land in
 
 ## Proof
 
-A real run (start time, duration, pages fetched, cache hits, valid/invalid records,
-failed pages) is reported at the end of every run in `output/run-report.json`.
+A real run:
+
+```json
+{
+  "start_time": "2026-08-12T09:05:58.189Z",
+  "duration_ms": 986,
+  "pages_fetched": 0,
+  "cache_hits": 63,
+  "valid_records": 60,
+  "invalid_records": 0,
+  "failed_pages": 1,
+  "failed_pages_detail": [
+    {
+      "url": "https://books.toscrape.com/catalogue/this-book-does-not-exist_9999/index.html",
+      "error": "HTTP 404 for https://books.toscrape.com/catalogue/this-book-does-not-exist_9999/index.html"
+    }
+  ]
+}
+```
+
+This run had one deliberately broken URL injected (`A9_EXTRA_URLS=...`); the run
+finished, `books.json` kept all 60 good records, and the report shows `failed_pages: 1`.
+Run-report is regenerated (with fresh timestamps) at the end of every run.
 
 ## Why no browser?
 
-The data is already in the HTML the server sends — a browser would only add cost. See
-`scripts/browser-compare.js` for the measurement (plain HTTP vs Playwright) behind that claim.
+Measured on `quotes.toscrape.com/js` (`scripts/browser-compare.js`): a plain HTTP
+request returned the page in **1432 ms** — but the quotes are **not in the HTML** the
+server sends (the page's JavaScript loads them afterwards). Playwright (headless
+Chromium) got the quotes into the DOM in **5607 ms** — ~4x slower, plus the cost of a
+whole browser process (memory and a ~115 MB browser download). The core assignment
+needs no browser because the data it scrapes is already in the HTML the server sends;
+a browser would only add cost. (A real-world site that hides data behind JavaScript
+is exactly where the browser lane earns its keep — next week's A16.)
 
 ## Ethics note
 
 Use an official API when one exists; never bypass logins, paywalls, or blocks; collect only
 what you need. This scraper touches one practice sandbox, says who it is, and goes slowly.
+
+## One honest limitation
+
+The retry rules (backoff, `Retry-After`) were implemented against the assignment's rules
+but could only be exercised on the deliberately broken URL (a 404, which is *not* retried by
+design) — the sandbox never produced a real timeout or 5xx during development, so the
+retryable path is covered by code review rather than a live failure.

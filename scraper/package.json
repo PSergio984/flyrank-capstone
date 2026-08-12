@@ -11,5 +11,8 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }
