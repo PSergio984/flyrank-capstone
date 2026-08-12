@@ -4,6 +4,7 @@ import { cachePathForBook, extractBook } from './extract.js';
 import { priceToGbp } from './normalize.js';
 import { storeRecords } from './store.js';
 import { writeRunReport } from './report.js';
+import { writeBooksCsv } from './csv.js';
 
 const startedAt = new Date();
 const stats = { pagesFetched: 0, cacheHits: 0, failedPages: [] };
@@ -42,6 +43,7 @@ const store = storeRecords(records, {
 });
 console.log(`valid=${store.valid} invalid=${store.invalid}`);
 
+writeBooksCsv(store.records, 'output/books.csv');
 writeRunReport('output/run-report.json', {
   startedAt,
   durationMs: Date.now() - startedAt.getTime(),

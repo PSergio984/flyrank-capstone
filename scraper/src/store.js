@@ -25,5 +25,5 @@ export function storeRecords(records, { booksPath, errorsPath }) {
   const unique = dedupeByProductUrl(good);
   writeJson(booksPath, unique);
   writeJson(errorsPath, errors);
-  return { valid: unique.length, invalid: errors.length };
+  return { valid: unique.length, invalid: errors.length, records: unique };
 }
