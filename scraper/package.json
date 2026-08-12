@@ -1,0 +1,15 @@
+{
+  "name": "a9-polite-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Week 5 Assignment A9: a polite scraper for Books to Scrape",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "zod": "^3.25.76"
+  }
+}
