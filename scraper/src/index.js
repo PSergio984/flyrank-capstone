@@ -5,6 +5,7 @@ import { priceToGbp } from './normalize.js';
 import { storeRecords } from './store.js';
 import { writeRunReport } from './report.js';
 import { writeBooksCsv } from './csv.js';
+import { writeDashboard } from './dashboard.js';
 
 const startedAt = new Date();
 const stats = { pagesFetched: 0, cacheHits: 0, failedPages: [] };
@@ -44,10 +45,13 @@ const store = storeRecords(records, {
 console.log(`valid=${store.valid} invalid=${store.invalid}`);
 
 writeBooksCsv(store.records, 'output/books.csv');
-writeRunReport('output/run-report.json', {
+
+const reportPath = 'output/run-report.json';
+writeRunReport(reportPath, {
   startedAt,
   durationMs: Date.now() - startedAt.getTime(),
   stats,
   store,
 });
+writeDashboard({ booksPath: 'output/books.json', reportPath, outPath: 'output/dashboard.html' });
 console.log(`run-report.json: failed_pages=${stats.failedPages.length}`);

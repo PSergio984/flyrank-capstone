@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A9 scraper dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 720px; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; }
+  .card .value { font-size: 1.6rem; font-weight: 600; }
+  .card .label { color: #666; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .ok { color: #1a7f37; }
+  .bad { color: #d1242f; }
+</style>
+</head>
+<body>
+<h1>Books to Scrape — run dashboard</h1>
+<div class="cards">
+  <div class="card"><div class="value">60</div><div class="label">records</div></div>
+  <div class="card"><div class="value">&pound;12.84 &ndash; &pound;57.31</div><div class="label">price range</div></div>
+  <div class="card"><div class="value">0</div><div class="label">failed pages</div></div>
+  <div class="card"><div class="value ok">8/12/2026, 5:08:04 PM</div><div class="label">last fresh</div></div>
+</div>
+<p>Run report: 60 valid, 0 invalid, 0 pages fetched, 63 cache hits, 235 ms.</p>
+</body>
+</html>
