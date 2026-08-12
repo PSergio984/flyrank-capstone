@@ -1,11 +1,11 @@
 import { politeFetch } from './fetch.js';
+import { discoverCatalogue } from './discover.js';
 
 const stats = { pagesFetched: 0, cacheHits: 0 };
+const fetchHtml = (url, opts) => politeFetch(url, { ...opts, stats });
 
-const { html, fromCache } = await politeFetch('https://books.toscrape.com/catalogue/page-1.html', {
-  cachePath: 'cache/catalogue-page-1.html',
-  stats,
-});
+const { pages, links } = await discoverCatalogue(fetchHtml);
+const uniqueUrls = new Set(links.map((l) => l.url));
 
-console.log(`response size: ${Buffer.byteLength(html)} bytes (${fromCache ? 'cache' : 'network'})`);
-console.log(`stats: pagesFetched=${stats.pagesFetched} cacheHits=${stats.cacheHits}`);
+console.log(`catalogue_pages=${pages.length} discovered=${links.length} unique_urls=${uniqueUrls.size}`);
+console.log(`pages fetched=${stats.pagesFetched} cache hits=${stats.cacheHits}`);
