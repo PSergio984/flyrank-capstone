@@ -1,7 +1,9 @@
 import { load } from 'cheerio';
 
 export const cachePathForBook = (bookUrl) => {
-  const slug = bookUrl.replace(/\/+$/, '').split('/').slice(-2).join('__').replace(/[^a-z0-9._-]/gi, '_');
+  const parts = new URL(bookUrl).pathname.split('/').filter(Boolean);
+  const file = parts[parts.length - 1];
+  const slug = file === 'index.html' ? parts[parts.length - 2] : file.replace(/\.html$/, '');
   return `cache/books/${slug}.html`;
 };
 
