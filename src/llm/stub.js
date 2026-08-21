@@ -11,7 +11,7 @@ function getStubEnrich(text) {
 
   if (!t || t.length < 3) {
     category = 'other'; confidence = 0.32; flags = ['vague_title', 'too_short']; needs_review = true;
-  } else if (/(ignore|banana|reveal|prompt|instructions)/i.test(t)) {
+  } else if (/(ignore|banana|reveal|prompt|instructions|extra|hacked|free text|sure!)/i.test(t)) {
     category = 'other'; confidence = 0.28; flags = ['vague_title']; needs_review = true;
   } else if (/(milk|bread|grocery|shop|buy)/i.test(t)) {
     category = 'shopping';
