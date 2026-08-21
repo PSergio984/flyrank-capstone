@@ -71,6 +71,8 @@ LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: applic
 # -> {"error":"text: text is required and cannot be empty"}
 ```
 
+Prompt is a versioned file `prompts/enrich-v1.md` (not a string) — 5 parts, temp 0, user text isolated via `JSON.stringify` in `role:user`. Tried on 3 inputs with stub off (OpenRouter `openrouter/free`): consistent shape, `other`+low confidence on vague/injection held; note: model loves fences unless told not to — Stage 3 strips them.
+
 ## Example
 
 ```bash

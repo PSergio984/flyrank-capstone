@@ -12,6 +12,8 @@ const { createRepository } = require('./repository');
 const { pingRedisOnce } = require('./redis-ping');
 const { inputSchema, outputSchema } = require('./src/llm/schema');
 const { getStubEnrich } = require('./src/llm/stub');
+const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
+const { createLlmClient, callWithRetry } = require('./src/llm/client');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -44,25 +46,24 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------
-  // Stage 1 — POST /enrich (contract before AI). Validates input before spend,
-  // returns schema-valid stub when LLM_STUB=1 (zero model calls). Real LLM wiring
-  // lands in Stage 2; until then non-stub returns 503 so contract stays honest.
+  // POST /enrich — the LLM endpoint (Stages 1-4). Validates before spend,
+  // stub when LLM_STUB=1, real model otherwise (prompt is a versioned file,
+  // user content isolated in role:user via JSON.stringify).
+  // Stage 2: wire real call (return raw text for now). Stage 3: parse/validate/repair.
   // -------------------------------------------------------------------------
   app.post('/enrich', async (req, res) => {
     const parsed = inputSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
       const first = parsed.error.issues[0];
-      // Name the field — every 400 saves a model call
       const field = first.path.join('.') || 'text';
       return res.status(400).json({ error: `${field}: ${first.message}` });
     }
 
     const { text } = parsed.data;
 
-    // Stub mode — the 20-restart path that never burns quota (Stage 1)
+    // Stub mode — zero LLM calls (Stage 1)
     if (process.env.LLM_STUB === '1') {
       const stub = getStubEnrich(text);
-      // Validate our own stub against the output contract (defense in depth)
       const checked = outputSchema.safeParse(stub);
       if (!checked.success) {
         return res.status(500).json({ error: 'Stub failed output validation' });
@@ -70,8 +71,42 @@ async function main() {
       return res.json(checked.data);
     }
 
-    // Non-stub not yet wired (Stage 2 will add real LLM call). Keep honest:
-    return res.status(503).json({ error: 'LLM not wired — set LLM_STUB=1 for stub or wait for Stage 2' });
+    // Kill switch (Stage 4) — also checked here so Stage 2 wiring respects it early
+    if (process.env.LLM_ENABLED === 'false') {
+      return res.status(503).json({ error: 'LLM disabled', fallback: getStubEnrich(text) });
+    }
+
+    // Real LLM path — prompt is a file, user data in separate message, JSON-encoded
+    try {
+      const systemPrompt = getSystemPrompt();
+      const client = createLlmClient();
+      const model = process.env.LLM_MODEL;
+
+      if (!process.env.LLM_BASE_URL || !process.env.LLM_API_KEY || !model) {
+        return res.status(500).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
+      }
+
+      const { res: llmRes } = await callWithRetry(client, {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(text) },
+        ],
+        temperature: 0,
+      });
+
+      const raw = llmRes.choices?.[0]?.message?.content ?? '';
+      // Stage 2: return whatever the model said (raw text) — Stage 3 will parse/validate/repair
+      // For now, try to return JSON if it looks like our shape, otherwise raw with warning
+      return res.json({ raw, prompt_version: getPromptVersion(), model });
+    } catch (err) {
+      const status = err.status || 500;
+      if (status === 401) return res.status(500).json({ error: 'LLM auth failed — check LLM_API_KEY' });
+      if (err.name === 'APIConnectionTimeoutError' || status === 504) return res.status(504).json({ error: 'LLM timeout' });
+      if (status === 429) return res.status(429).json({ error: 'LLM rate limited', retry_after: err.headers?.get?.('retry-after') });
+      console.error('LLM call failed', err);
+      return res.status(500).json({ error: 'LLM call failed', details: err.message });
+    }
   });
 
   // Stretch extra — real health check: the DB probe runs SELECT 1 through the
