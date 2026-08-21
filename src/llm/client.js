@@ -43,7 +43,7 @@ async function callWithRetry(client, params, maxAttempts = 4) {
       if (!isRetriable(err)) throw err;
       attempt++;
       if (attempt >= maxAttempts) break;
-      // Respect Retry-After if present (seconds or http-date)
+      // Respect Retry-After if present (seconds or http-date) — obey exactly, no extra jitter
       let delay = Math.pow(2, attempt - 1) * 1000; // 1s,2s,4s
       const retryAfter = err.headers?.get?.('retry-after') || err.headers?.['retry-after'] || err.response?.headers?.get?.('retry-after');
       if (retryAfter) {
@@ -53,9 +53,10 @@ async function callWithRetry(client, params, maxAttempts = 4) {
           const date = Date.parse(retryAfter);
           if (!Number.isNaN(date)) delay = Math.max(0, date - Date.now());
         }
+      } else {
+        // jitter only on our own backoff — when the server dictates a delay we obey it verbatim
+        delay += Math.random() * 200;
       }
-      // jitter
-      delay += Math.random() * 200;
       await new Promise((r) => setTimeout(r, delay));
     }
   }

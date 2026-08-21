@@ -23,7 +23,8 @@ async function complete({ system, user }) {
   const client = createProviderClient();
   const model = process.env.LLM_MODEL;
   if (!process.env.LLM_BASE_URL || !process.env.LLM_API_KEY || !model) {
-    throw Object.assign(new Error('LLM not configured — set LLM_BASE_URL/API_KEY/MODEL'), { status: 500 });
+    // 503 per doc contract ("503 if LLM not wired") — route maps err.status straight through
+    throw Object.assign(new Error('LLM not configured — set LLM_BASE_URL/API_KEY/MODEL'), { status: 503 });
   }
   const { res, duration } = await callWithRetry(client, {
     model,

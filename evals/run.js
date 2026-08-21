@@ -25,6 +25,7 @@ async function main() {
     }
   }
 
+  let errored = 0;
   for (const c of cases) {
     try {
       const res = await fetch(`${base}/enrich`, {
@@ -43,11 +44,17 @@ async function main() {
         console.log(`FAIL #${c.id} ${JSON.stringify(c.input)} -> ${JSON.stringify(body)} (expected category=${expected}, needs_review=${c.expected.needs_review})`);
       }
     } catch (e) {
+      errored++;
       console.log(`ERROR #${c.id}: ${e.message}`);
     }
   }
   console.log(`\nScore: ${passed}/${cases.length} (${((passed/cases.length)*100).toFixed(0)}%)`);
   if (passed < cases.length) console.log('Failed ids: see above');
+  // A partial run is not a real score — nonzero exit so CI/README claims can't hide it
+  if (errored > 0) {
+    console.error(`${errored} case(s) errored mid-run — score is incomplete`);
+    process.exitCode = 3;
+  }
   // Record date+prompt version for README
   try {
     const { getPromptVersion } = require('../src/llm/prompt');

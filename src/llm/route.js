@@ -63,11 +63,13 @@ async function handleEnrich(req, res) {
   // Real LLM path
   try {
     const systemPrompt = getSystemPrompt();
-    const client = createLlmClient();
+    const client = createLlmClient(); // used by the repair call below
     const model = process.env.LLM_MODEL;
 
+    // Config errors surface as 503 (doc contract: "503 if LLM not wired") —
+    // provider.complete throws the same check; this pre-guard keeps it a clean JSON response.
     if (!process.env.LLM_BASE_URL || !process.env.LLM_API_KEY || !model) {
-      return res.status(500).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
+      return res.status(503).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
     }
 
     const first = await complete({ system: systemPrompt, user: text });
@@ -104,7 +106,10 @@ async function handleEnrich(req, res) {
         } else {
           result = repairResult;
         }
-      } catch (e) {}
+      } catch (e) {
+        // repair call itself failed — keep original failure, but log for debugging
+        console.error('repair call failed', e.message);
+      }
       if (!result.success) {
         quarantine({ input: text, raw_output: raw, validation_error: errMsg, prompt_version: promptVersion });
         logCost({ promptVersion, model, usage, durationMs: durationMs + repairDuration, repaired, cached: false });
@@ -113,10 +118,11 @@ async function handleEnrich(req, res) {
     }
 
     logCost({ promptVersion, model, usage, durationMs: repaired ? durationMs + repairDuration : durationMs, repaired, cached: false });
-    try { cacheSet(text, promptVersion, result.data); } catch (e) {}
+    try { cacheSet(text, promptVersion, result.data); } catch (e) { console.error('cacheSet failed', e.message); }
     return res.json(result.data);
   } catch (err) {
     const status = err.status || 500;
+    if (status === 503) return res.status(503).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
     if (status === 401) return res.status(500).json({ error: 'LLM auth failed — check LLM_API_KEY' });
     if (err.name === 'APIConnectionTimeoutError' || status === 504) return res.status(504).json({ error: 'LLM timeout' });
     if (status === 429) return res.status(429).json({ error: 'LLM rate limited', retry_after: err.headers?.get?.('retry-after') });

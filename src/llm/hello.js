@@ -37,13 +37,8 @@ async function main() {
     if (err.status === 404 && String(err.message).includes('No endpoints')) {
       console.error('Hint: OpenRouter Settings → Privacy → enable both Free endpoint toggles.');
     }
-    // For local dev without a real key, emit ready so the Stage 0 checkpoint can still be observed:
-    if (!process.env.LLM_API_KEY || process.env.LLM_API_KEY === '') {
-      console.log('ready (no key — wiring verified, add key for real call)');
-    } else {
-      // Re-throw to make failure visible when a real key was provided
-      process.exitCode = 1;
-    }
+    // A real key was provided (missing key early-returns above) — make the failure visible
+    process.exitCode = 1;
   }
 }
 
