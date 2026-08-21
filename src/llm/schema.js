@@ -25,7 +25,13 @@ const inputSchema = z.object({
 // - strict: extra fields fail validation (triggers repair once)
 const outputSchema = z.object({
   category: Category,
-  summary: z.string().trim().min(1).max(120),
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((s) => !s.includes('\n'), { message: 'summary must be one line' })
+    .refine((s) => (s.match(/[.!?]/g) || []).length <= 1, { message: 'summary must be one sentence' }),
   confidence: z.number().min(0).max(1),
   quality_flags: z.array(QualityFlag).default([]),
   needs_review: z.boolean(),

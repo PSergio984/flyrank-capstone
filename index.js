@@ -16,6 +16,7 @@ const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
 const { createLlmClient, callWithRetry } = require('./src/llm/client');
 const { get: cacheGet, set: cacheSet } = require('./src/llm/cache');
 const { complete } = require('./src/llm/provider');
+const { logCost, quarantine } = require('./src/llm/logger');
 const fs = require('fs');
 const path = require('path');
 const app = express();
@@ -88,7 +89,12 @@ async function main() {
 
     const { text } = parsed.data;
 
-    // Stub mode — zero LLM calls (Stage 1)
+    // Kill switch (Stage 4) — checked FIRST so LLM_ENABLED=false wins even if LLM_STUB=1
+    if (process.env.LLM_ENABLED === 'false') {
+      return res.status(503).json({ error: 'LLM disabled', fallback: getStubEnrich(text) });
+    }
+
+    // Stub mode — zero LLM calls (Stage 1) — only when kill switch not active
     if (process.env.LLM_STUB === '1') {
       const stub = getStubEnrich(text);
       const checked = outputSchema.safeParse(stub);
@@ -98,29 +104,11 @@ async function main() {
       return res.json(checked.data);
     }
 
-    // Kill switch (Stage 4) — also checked here so Stage 2 wiring respects it early
-    if (process.env.LLM_ENABLED === 'false') {
-      return res.status(503).json({ error: 'LLM disabled', fallback: getStubEnrich(text) });
-    }
-
     // Bonus cache — prompt-versioned key, hit returns saved validated JSON (Stage 4+)
     const promptVersion = getPromptVersion();
     const cached = cacheGet(text, promptVersion);
     if (cached) {
-      // Log cache hit (no LLM call)
-      try {
-        fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
-        fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
-          timestamp: new Date().toISOString(),
-          prompt_version: promptVersion,
-          model: process.env.LLM_MODEL || 'cache',
-          input_tokens: 0,
-          output_tokens: 0,
-          duration_ms: 0,
-          repair: 0,
-          cached: true,
-        }) + '\n');
-      } catch (e) {}
+      logCost({ promptVersion, model: process.env.LLM_MODEL || 'cache', usage: null, durationMs: 0, repaired: false, cached: true });
       return res.json(cached);
     }
 
@@ -178,50 +166,13 @@ async function main() {
           // repair call itself failed — keep original failure
         }
         if (!result.success) {
-          // Quarantine — never guess default, never crash
-          const entry = {
-            timestamp: new Date().toISOString(),
-            input: text,
-            raw_output: raw,
-            validation_error: errMsg,
-            prompt_version: promptVersion,
-          };
-          try {
-            fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
-            fs.appendFileSync(path.join(__dirname, 'logs', 'quarantine.jsonl'), JSON.stringify(entry) + '\n');
-          } catch (e) { console.error('quarantine write failed', e); }
-          // Cost log even on failure — one line per endpoint call (Stage 4)
-          try {
-            fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
-            fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
-              timestamp: new Date().toISOString(),
-              prompt_version: promptVersion,
-              model,
-              input_tokens: usage?.prompt_tokens ?? 0,
-              output_tokens: usage?.completion_tokens ?? 0,
-              duration_ms: durationMs + repairDuration,
-              repair: repaired ? 1 : 0,
-              cached: false,
-            }) + '\n');
-          } catch (e) { /* log failure not fatal */ }
+          quarantine({ input: text, raw_output: raw, validation_error: errMsg, prompt_version: promptVersion });
+          logCost({ promptVersion, model, usage, durationMs: durationMs + repairDuration, repaired, cached: false });
           return res.status(422).json({ error: 'Invalid model output', details: errMsg });
         }
       }
 
-      // Cost log — one structured line per successful call (Stage 4)
-      try {
-        fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
-        fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
-          timestamp: new Date().toISOString(),
-          prompt_version: promptVersion,
-          model,
-          input_tokens: usage?.prompt_tokens ?? 0,
-          output_tokens: usage?.completion_tokens ?? 0,
-          duration_ms: repaired ? durationMs + repairDuration : durationMs,
-          repair: repaired ? 1 : 0,
-          cached: false,
-        }) + '\n');
-      } catch (e) { /* log failure not fatal */ }
+      logCost({ promptVersion, model, usage, durationMs: repaired ? durationMs + repairDuration : durationMs, repaired, cached: false });
 
       // Bonus cache — store validated result, key includes prompt version (bust on v2)
       try { cacheSet(text, promptVersion, result.data); } catch (e) {}

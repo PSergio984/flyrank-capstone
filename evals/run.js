@@ -1,8 +1,8 @@
 // Tiny eval — runs evals/cases.json through POST /enrich and prints score.
-// Usage: LLM_STUB=1 node evals/run.js   (zero spend, uses stub)
+// Usage: LLM_STUB=1 node evals/run.js   (zero spend, uses stub via HTTP)
 //        node --env-file=.env evals/run.js  (real model, 8 calls)
 // Requires API running at http://localhost:3000 (npm start or docker compose up).
-// If API not running, falls back to direct stub+schema check so score still prints.
+// No fallback — must hit POST /enrich so score reflects the endpoint contract, not direct stub.
 const fs = require('fs');
 const path = require('path');
 
@@ -13,29 +13,16 @@ async function main() {
 
   console.log(`Eval against ${base}/enrich — ${cases.length} cases (prompt ${process.env.LLM_MODEL || 'stub'})`);
 
-  // Try HTTP if server reachable, else fall back to stub
-  let useHttp = true;
+  // Verify API reachable — no fallback (spec: 8 through your endpoint)
   try {
-    const probe = await fetch(`${base}/health`);
+    await fetch(`${base}/health`);
   } catch {
-    // health may be 404 on fresh, try root
-    try { await fetch(`${base}/`); } catch { useHttp = false; }
-  }
-
-  // If no server, fall back to direct stub validation (still measures schema, not model variance)
-  if (!useHttp) {
-    console.log('(API not reachable — falling back to direct stub check)');
-    const { getStubEnrich } = require('../src/llm/stub');
-    const { outputSchema } = require('../src/llm/schema');
-    for (const c of cases) {
-      const out = getStubEnrich(c.input.text);
-      const parsed = outputSchema.safeParse(out);
-      const ok = parsed.success && out.category === c.expected.category && out.needs_review === c.expected.needs_review;
-      if (ok) passed++;
-      else console.log(`FAIL #${c.id}: got ${JSON.stringify(out)} expected category=${c.expected.category}`);
+    try { await fetch(`${base}/`); } catch (e) {
+      console.error(`API not reachable at ${base} — start it first: npm start or docker compose up`);
+      console.error(`Hint: with LLM_STUB=1 you can still test without a key, but the server must be running.`);
+      process.exitCode = 2;
+      return;
     }
-    console.log(`\nScore: ${passed}/${cases.length} (${((passed/cases.length)*100).toFixed(0)}%) — stub direct`);
-    return;
   }
 
   for (const c of cases) {

@@ -3,23 +3,20 @@
 // Two implementations share the openai Node SDK (OpenAI-compatible): OpenRouter vs Ollama.
 // This module is the seam that makes "why this matters more for LLMs than normal HTTP"
 // visible: models vary in price/rate-limits/latency/quality, so provider swap must be trivial.
-const OpenAI = require('openai');
-const { callWithRetry } = require('./client');
+const { createLlmClient, callWithRetry } = require('./client');
+
+const Provider = { OPENROUTER: 'openrouter', OLLAMA: 'ollama' };
 
 function providerFromEnv() {
-  const base = process.env.LLM_BASE_URL || '';
-  if (base.includes('localhost:11434') || process.env.LLM_MODEL?.includes('gemma3')) return 'ollama';
-  return 'openrouter'; // default
+  const base = (process.env.LLM_BASE_URL || '').toLowerCase();
+  // Provider is derived from baseURL host — the 3-var swap's single source of truth
+  if (base.startsWith('http://localhost:11434')) return Provider.OLLAMA;
+  return Provider.OPENROUTER;
 }
 
 function createProviderClient() {
-  // Both lanes use the same SDK — only baseURL/apiKey/model differ (see research/provider-sdk.md)
-  return new OpenAI({
-    baseURL: process.env.LLM_BASE_URL,
-    apiKey: process.env.LLM_API_KEY,
-    timeout: 30000,
-    maxRetries: 0,
-  });
+  // Reuse the single factory so timeout/retry/docs stay in one place (fixes Duplicated Code)
+  return createLlmClient();
 }
 
 async function complete({ system, user }) {
