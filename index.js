@@ -14,7 +14,32 @@ const { inputSchema, outputSchema } = require('./src/llm/schema');
 const { getStubEnrich } = require('./src/llm/stub');
 const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
 const { createLlmClient, callWithRetry } = require('./src/llm/client');
+const fs = require('fs');
+const path = require('path');
 const app = express();
+
+// Helpers for Stage 3 — model is untrusted input, must go through schema
+function extractJson(raw) {
+  let text = String(raw ?? '').trim();
+  // Strip ```json ... ``` fences if present
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fence) text = fence[1];
+  // Find outermost JSON object
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) text = text.slice(start, end + 1);
+  return text.trim();
+}
+
+function tryParseAndValidate(raw) {
+  try {
+    const jsonStr = extractJson(raw);
+    const obj = JSON.parse(jsonStr);
+    return outputSchema.safeParse(obj);
+  } catch (e) {
+    return { success: false, error: e, raw };
+  }
+}
 const port = process.env.PORT || 3000;
 
 // Express needs this to parse JSON request bodies.
@@ -77,8 +102,10 @@ async function main() {
     }
 
     // Real LLM path — prompt is a file, user data in separate message, JSON-encoded
+    // Stage 3: parse + validate, repair once on failure, quarantine on second failure, never raw text
     try {
       const systemPrompt = getSystemPrompt();
+      const promptVersion = getPromptVersion();
       const client = createLlmClient();
       const model = process.env.LLM_MODEL;
 
@@ -95,10 +122,56 @@ async function main() {
         temperature: 0,
       });
 
-      const raw = llmRes.choices?.[0]?.message?.content ?? '';
-      // Stage 2: return whatever the model said (raw text) — Stage 3 will parse/validate/repair
-      // For now, try to return JSON if it looks like our shape, otherwise raw with warning
-      return res.json({ raw, prompt_version: getPromptVersion(), model });
+      let raw = llmRes.choices?.[0]?.message?.content ?? '';
+      let result = tryParseAndValidate(raw);
+      let repaired = false;
+
+      // Repair once if parsing or validation failed
+      if (!result.success) {
+        const errMsg = result.error?.issues ? result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : String(result.error?.message || result.error);
+        const repairSystem = systemPrompt + `\n\nYour previous answer was rejected for this reason: ${errMsg}. Return only corrected JSON matching the schema.`;
+        try {
+          const { res: repairRes } = await callWithRetry(client, {
+            model,
+            messages: [
+              { role: 'system', content: repairSystem },
+              { role: 'user', content: JSON.stringify(text) },
+              { role: 'assistant', content: raw },
+              { role: 'user', content: `Validation error: ${errMsg}. Return only corrected JSON.` },
+            ],
+            temperature: 0,
+          });
+          const repairRaw = repairRes.choices?.[0]?.message?.content ?? '';
+          const repairResult = tryParseAndValidate(repairRaw);
+          if (repairResult.success) {
+            result = repairResult;
+            repaired = true;
+            raw = repairRaw; // for quarantine log if needed
+          } else {
+            result = repairResult;
+          }
+        } catch (e) {
+          // repair call itself failed — keep original failure
+        }
+        if (!result.success) {
+          // Quarantine — never guess default, never crash
+          const entry = {
+            timestamp: new Date().toISOString(),
+            input: text,
+            raw_output: raw,
+            validation_error: errMsg,
+            prompt_version: promptVersion,
+          };
+          try {
+            fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+            fs.appendFileSync(path.join(__dirname, 'logs', 'quarantine.jsonl'), JSON.stringify(entry) + '\n');
+          } catch (e) { console.error('quarantine write failed', e); }
+          return res.status(422).json({ error: 'Invalid model output', details: errMsg });
+        }
+      }
+
+      // Success — return clean schema-shaped JSON, never raw text
+      return res.json(result.data);
     } catch (err) {
       const status = err.status || 500;
       if (status === 401) return res.status(500).json({ error: 'LLM auth failed — check LLM_API_KEY' });
