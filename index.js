@@ -15,6 +15,7 @@ const { getStubEnrich } = require('./src/llm/stub');
 const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
 const { createLlmClient, callWithRetry } = require('./src/llm/client');
 const { get: cacheGet, set: cacheSet } = require('./src/llm/cache');
+const { complete } = require('./src/llm/provider');
 const fs = require('fs');
 const path = require('path');
 const app = express();
@@ -134,19 +135,13 @@ async function main() {
         return res.status(500).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
       }
 
-      // First LLM call — capture duration/usage for cost log (Stage 4)
-      const first = await callWithRetry(client, {
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(text) },
-        ],
-        temperature: 0,
-      });
-      let llmRes = first.res;
-      let durationMs = first.duration;
-      let usage = llmRes.usage || null;
-      let raw = llmRes.choices?.[0]?.message?.content ?? '';
+      // First LLM call — via provider abstraction (bonus: route never knows provider)
+      // complete() uses the same SDK with 3-var swap; swap proves via env change only
+      const first = await complete({ system: systemPrompt, user: text });
+      let raw = first.content ?? '';
+      let usage = first.usage || null;
+      let durationMs = first.duration || 0;
+      let llmRes = { choices: [{ message: { content: raw } }], usage, model: first.model };
       let result = tryParseAndValidate(raw);
       let repaired = false;
       let repairDuration = 0;
