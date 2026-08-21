@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "input": { "text": "Buy milk and bread for the week" },
+    "expected": { "category": "shopping", "confidence_range": [0.8, 1.0], "needs_review": false },
+    "notes": "typical shopping — clear intent"
+  },
+  {
+    "id": 2,
+    "input": { "text": "Fix production bug in payment checkout" },
+    "expected": { "category": "work", "confidence_range": [0.8, 1.0], "needs_review": false },
+    "notes": "typical work — engineering bug"
+  },
+  {
+    "id": 3,
+    "input": { "text": "Meditation and morning yoga routine" },
+    "expected": { "category": "health", "confidence_range": [0.7, 1.0], "needs_review": false },
+    "notes": "typical health"
+  },
+  {
+    "id": 4,
+    "input": { "text": "Read chapter 5 of algorithms book" },
+    "expected": { "category": "learning", "confidence_range": [0.7, 1.0], "needs_review": false },
+    "notes": "typical learning"
+  },
+  {
+    "id": 5,
+    "input": { "text": "Plan birthday party for mom" },
+    "expected": { "category": "personal", "confidence_range": [0.7, 1.0], "needs_review": false },
+    "notes": "typical personal"
+  },
+  {
+    "id": 6,
+    "input": { "text": "stuff" },
+    "expected": { "category": "other", "confidence_range": [0.0, 0.5], "needs_review": true },
+    "notes": "ambiguous — should hit when-unsure rule (other <0.5)"
+  },
+  {
+    "id": 7,
+    "input": { "text": "qwerty asdf jkl" },
+    "expected": { "category": "other", "confidence_range": [0.0, 0.5], "needs_review": true },
+    "notes": "when-unsure — nonsense, not a task"
+  },
+  {
+    "id": 8,
+    "input": { "text": "Urgent: server down need fix now!!!" },
+    "expected": { "category": "work", "confidence_range": [0.8, 1.0], "needs_review": false, "expect_flags": ["urgent_language"] },
+    "notes": "urgent language — should flag urgent but not be other"
+  }
+]

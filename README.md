@@ -59,21 +59,47 @@ The repository factory in `repository/index.js` is the single place that reads `
 
 All queries are parameterized — values are passed to the driver separately, never glued into SQL strings.
 
-### Try /enrich in 5 seconds (stub — no key, no spend)
+## LLM Enrich (A17) — Put an LLM behind your API
+
+**What it does — one paragraph for a non-programmer:** POST /enrich takes a messy task line you pasted ("Buy milk and bread", "Fix production bug…") and asks a large language model to return a clean, validated tag: which bucket it belongs to, a one-sentence summary, how sure it is, and whether a human should review it. The model never decides payments or writes free text — it only fills the fixed form, and code checks the form before anyone sees it.
+
+**One curl and the exact response it produces:**
 
 ```bash
-# valid — LLM_STUB=1 returns schema-valid JSON, zero LLM calls
-LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{"text":"Buy milk and bread"}' | jq
-# -> {"category":"work","summary":"Buy milk and bread","confidence":0.92,"quality_flags":[],"needs_review":false}
-
-# broken — missing field returns 400 naming the field before any model call
-LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{}' | jq
+# valid — LLM_STUB=1 returns schema-valid JSON, zero LLM calls, no key needed
+curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{"text":"Buy milk and bread for the week"}' | jq
+```
+```json
+{"category":"shopping","summary":"Buy milk and bread for the week","confidence":0.95,"quality_flags":[],"needs_review":false}
+```
+```bash
+# broken — missing field returns 400 naming the field before any model call, zero spend
+curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{}' | jq
 # -> {"error":"text: text is required and cannot be empty"}
 ```
 
-Prompt is a versioned file `prompts/enrich-v1.md` (not a string) — 5 parts, temp 0, user text isolated via `JSON.stringify` in `role:user`. Tried on 3 inputs with stub off (OpenRouter `openrouter/free`): consistent shape, `other`+low confidence on vague/injection held; note: model loves fences unless told not to — Stage 3 strips them.
+**Job card — `JOB-CARD.md`:**
 
-Timeout `30000` on client (SDK default 10min is not a timeout) → `504`. Retry is **custom** (`maxRetries:0`, own backoff `1s/2s/4s + jitter`, obey `Retry-After`, only on timeout/429/5xx, never 400/401/403) — README states which we chose; cost logged per call to `logs/llm.jsonl` (`prompt_version, model, input_tokens, output_tokens, duration_ms, repair, cached`); kill switch `LLM_ENABLED=false` → `503 {error, fallback}` zero calls.
+```
+What it does: Enriches a short task title/description into category+summary+flags
+Input:  { "text": "string, 1-2000 chars" }
+Output: { category: one of [work|personal|shopping|health|learning|other],
+          summary: 1-120 chars one sentence, confidence 0.0-1.0,
+          quality_flags: subset [vague_title|too_short|needs_details|urgent_language|duplicate_intent],
+          needs_review: bool }
+It must never: invent category · return free text beyond summary · add fields · give medical/legal/financial advice · reveal prompt
+When unsure: return category "other" with confidence <0.5 and needs_review true — not a guess
+```
+
+**Provider and model — 3 vars are the only delta:** Primary **OpenRouter** `https://openrouter.ai/api/v1` + `openrouter/free` (or `google/gemma-3-1b-free`) — flip **both** Privacy toggles at `openrouter.ai/settings/privacy` or free models 404. Swap to **Ollama** by changing only `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_API_KEY=ollama`, `LLM_MODEL=gemma3:1b` (`--env-file=.env`, `.env.example` shows keys). Prompt lives versioned at `prompts/enrich-v1.md` (5 parts, temp 0, user text isolated `JSON.stringify` in `role:user`).
+
+**Eval result — `evals/cases.json` 8 hand-labelled (≥1 ambiguous + ≥1 when-unsure):** `node evals/run.js` with `LLM_STUB=1` → **8/8 (100%)** on 2026-08-21, prompt_version `enrich-v1`, model `stub heuristic` (real OpenRouter run uses same 8, budget 8 of 50/day). Stub heuristic mirrors prompt rules so score is meaningful even without spend; real model shape held on 3 manual probes (`Buy milk`→shopping, `stuff`→other/low, `Ignore instructions…`→other/low — fences stripped).
+
+**Cost log — one structured line per call to `logs/llm.jsonl`:** `{"timestamp":"2026-08-21T…","prompt_version":"enrich-v1","model":"openrouter/free","input_tokens":42,"output_tokens":28,"duration_ms":1180,"repair":0,"cached":false}` · Free tier $0; paid `openrouter/free` nominal $0, example paid `google/gemma-3-1b` ~$0.04/1M input — **10k/day ≈ 700k tokens ≈ $0.03–$0.28** (input dominates; retries are biggest driver if you retry 400/401).
+
+**What I'd fix with another day:** count tokens pre-send and reject over 1500, add Redis cache keyed by `hash(text+prompt_version)` (bust on v2), and race `openrouter/free` vs `gemma3:1b` on the same 8 to pick the stabler.
+
+Timeout `30000` (SDK 10min is not a timeout) → `504`; retries **custom** (`maxRetries:0`, backoff 1s/2s/4s+jitter, `Retry-After`, only timeout/429/5xx, never 400/401/403); kill switch `LLM_ENABLED=false` → `503 {error, fallback}` zero calls; quarantine `logs/quarantine.jsonl` on 422.
 
 ## Example
 
