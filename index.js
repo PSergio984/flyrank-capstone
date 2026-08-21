@@ -14,6 +14,7 @@ const { inputSchema, outputSchema } = require('./src/llm/schema');
 const { getStubEnrich } = require('./src/llm/stub');
 const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
 const { createLlmClient, callWithRetry } = require('./src/llm/client');
+const { get: cacheGet, set: cacheSet } = require('./src/llm/cache');
 const fs = require('fs');
 const path = require('path');
 const app = express();
@@ -101,11 +102,31 @@ async function main() {
       return res.status(503).json({ error: 'LLM disabled', fallback: getStubEnrich(text) });
     }
 
+    // Bonus cache — prompt-versioned key, hit returns saved validated JSON (Stage 4+)
+    const promptVersion = getPromptVersion();
+    const cached = cacheGet(text, promptVersion);
+    if (cached) {
+      // Log cache hit (no LLM call)
+      try {
+        fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+        fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
+          timestamp: new Date().toISOString(),
+          prompt_version: promptVersion,
+          model: process.env.LLM_MODEL || 'cache',
+          input_tokens: 0,
+          output_tokens: 0,
+          duration_ms: 0,
+          repair: 0,
+          cached: true,
+        }) + '\n');
+      } catch (e) {}
+      return res.json(cached);
+    }
+
     // Real LLM path — prompt is a file, user data in separate message, JSON-encoded
     // Stage 3: parse + validate, repair once on failure, quarantine on second failure, never raw text
     try {
       const systemPrompt = getSystemPrompt();
-      const promptVersion = getPromptVersion();
       const client = createLlmClient();
       const model = process.env.LLM_MODEL;
 
@@ -206,6 +227,9 @@ async function main() {
           cached: false,
         }) + '\n');
       } catch (e) { /* log failure not fatal */ }
+
+      // Bonus cache — store validated result, key includes prompt version (bust on v2)
+      try { cacheSet(text, promptVersion, result.data); } catch (e) {}
 
       // Success — return clean schema-shaped JSON, never raw text
       return res.json(result.data);
