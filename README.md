@@ -73,6 +73,8 @@ LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: applic
 
 Prompt is a versioned file `prompts/enrich-v1.md` (not a string) — 5 parts, temp 0, user text isolated via `JSON.stringify` in `role:user`. Tried on 3 inputs with stub off (OpenRouter `openrouter/free`): consistent shape, `other`+low confidence on vague/injection held; note: model loves fences unless told not to — Stage 3 strips them.
 
+Timeout `30000` on client (SDK default 10min is not a timeout) → `504`. Retry is **custom** (`maxRetries:0`, own backoff `1s/2s/4s + jitter`, obey `Retry-After`, only on timeout/429/5xx, never 400/401/403) — README states which we chose; cost logged per call to `logs/llm.jsonl` (`prompt_version, model, input_tokens, output_tokens, duration_ms, repair, cached`); kill switch `LLM_ENABLED=false` → `503 {error, fallback}` zero calls.
+
 ## Example
 
 ```bash

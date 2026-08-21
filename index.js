@@ -113,7 +113,8 @@ async function main() {
         return res.status(500).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
       }
 
-      const { res: llmRes } = await callWithRetry(client, {
+      // First LLM call — capture duration/usage for cost log (Stage 4)
+      const first = await callWithRetry(client, {
         model,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -121,17 +122,20 @@ async function main() {
         ],
         temperature: 0,
       });
-
+      let llmRes = first.res;
+      let durationMs = first.duration;
+      let usage = llmRes.usage || null;
       let raw = llmRes.choices?.[0]?.message?.content ?? '';
       let result = tryParseAndValidate(raw);
       let repaired = false;
+      let repairDuration = 0;
 
       // Repair once if parsing or validation failed
       if (!result.success) {
         const errMsg = result.error?.issues ? result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : String(result.error?.message || result.error);
         const repairSystem = systemPrompt + `\n\nYour previous answer was rejected for this reason: ${errMsg}. Return only corrected JSON matching the schema.`;
         try {
-          const { res: repairRes } = await callWithRetry(client, {
+          const repair = await callWithRetry(client, {
             model,
             messages: [
               { role: 'system', content: repairSystem },
@@ -141,12 +145,16 @@ async function main() {
             ],
             temperature: 0,
           });
+          const repairRes = repair.res;
+          repairDuration = repair.duration;
           const repairRaw = repairRes.choices?.[0]?.message?.content ?? '';
           const repairResult = tryParseAndValidate(repairRaw);
           if (repairResult.success) {
             result = repairResult;
             repaired = true;
-            raw = repairRaw; // for quarantine log if needed
+            llmRes = repairRes;
+            usage = repairRes.usage || usage;
+            raw = repairRaw;
           } else {
             result = repairResult;
           }
@@ -166,9 +174,38 @@ async function main() {
             fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
             fs.appendFileSync(path.join(__dirname, 'logs', 'quarantine.jsonl'), JSON.stringify(entry) + '\n');
           } catch (e) { console.error('quarantine write failed', e); }
+          // Cost log even on failure — one line per endpoint call (Stage 4)
+          try {
+            fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+            fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
+              timestamp: new Date().toISOString(),
+              prompt_version: promptVersion,
+              model,
+              input_tokens: usage?.prompt_tokens ?? 0,
+              output_tokens: usage?.completion_tokens ?? 0,
+              duration_ms: durationMs + repairDuration,
+              repair: repaired ? 1 : 0,
+              cached: false,
+            }) + '\n');
+          } catch (e) { /* log failure not fatal */ }
           return res.status(422).json({ error: 'Invalid model output', details: errMsg });
         }
       }
+
+      // Cost log — one structured line per successful call (Stage 4)
+      try {
+        fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+        fs.appendFileSync(path.join(__dirname, 'logs', 'llm.jsonl'), JSON.stringify({
+          timestamp: new Date().toISOString(),
+          prompt_version: promptVersion,
+          model,
+          input_tokens: usage?.prompt_tokens ?? 0,
+          output_tokens: usage?.completion_tokens ?? 0,
+          duration_ms: repaired ? durationMs + repairDuration : durationMs,
+          repair: repaired ? 1 : 0,
+          cached: false,
+        }) + '\n');
+      } catch (e) { /* log failure not fatal */ }
 
       // Success — return clean schema-shaped JSON, never raw text
       return res.json(result.data);
