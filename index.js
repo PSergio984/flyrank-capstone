@@ -10,40 +10,9 @@ const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const { createRepository } = require('./repository');
 const { pingRedisOnce } = require('./redis-ping');
-const { inputSchema, outputSchema } = require('./src/llm/schema');
-const { getStubEnrich } = require('./src/llm/stub');
-const { getSystemPrompt, getPromptVersion } = require('./src/llm/prompt');
-const { createLlmClient, callWithRetry } = require('./src/llm/client');
-const { get: cacheGet, set: cacheSet } = require('./src/llm/cache');
-const { complete } = require('./src/llm/provider');
-const { logCost, quarantine } = require('./src/llm/logger');
-const fs = require('fs');
-const path = require('path');
-const app = express();
-
-// Helpers for Stage 3 — model is untrusted input, must go through schema
-function extractJson(raw) {
-  let text = String(raw ?? '').trim();
-  // Strip ```json ... ``` fences if present
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fence) text = fence[1];
-  // Find outermost JSON object
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) text = text.slice(start, end + 1);
-  return text.trim();
-}
-
-function tryParseAndValidate(raw) {
-  try {
-    const jsonStr = extractJson(raw);
-    const obj = JSON.parse(jsonStr);
-    return outputSchema.safeParse(obj);
-  } catch (e) {
-    return { success: false, error: e, raw };
-  }
-}
+const { handleEnrich } = require('./src/llm/route');
 const port = process.env.PORT || 3000;
+const app = express();
 
 // Express needs this to parse JSON request bodies.
 app.use(express.json());
@@ -73,123 +42,9 @@ async function main() {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // POST /enrich — the LLM endpoint (Stages 1-4). Validates before spend,
-  // stub when LLM_STUB=1, real model otherwise (prompt is a versioned file,
-  // user content isolated in role:user via JSON.stringify).
-  // Stage 2: wire real call (return raw text for now). Stage 3: parse/validate/repair.
-  // -------------------------------------------------------------------------
-  app.post('/enrich', async (req, res) => {
-    const parsed = inputSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      const first = parsed.error.issues[0];
-      const field = first.path.join('.') || 'text';
-      return res.status(400).json({ error: `${field}: ${first.message}` });
-    }
+  app.post('/enrich', handleEnrich);
 
-    const { text } = parsed.data;
-
-    // Kill switch (Stage 4) — checked FIRST so LLM_ENABLED=false wins even if LLM_STUB=1
-    if (process.env.LLM_ENABLED === 'false') {
-      return res.status(503).json({ error: 'LLM disabled', fallback: getStubEnrich(text) });
-    }
-
-    // Stub mode — zero LLM calls (Stage 1) — only when kill switch not active
-    if (process.env.LLM_STUB === '1') {
-      const stub = getStubEnrich(text);
-      const checked = outputSchema.safeParse(stub);
-      if (!checked.success) {
-        return res.status(500).json({ error: 'Stub failed output validation' });
-      }
-      return res.json(checked.data);
-    }
-
-    // Bonus cache — prompt-versioned key, hit returns saved validated JSON (Stage 4+)
-    const promptVersion = getPromptVersion();
-    const cached = cacheGet(text, promptVersion);
-    if (cached) {
-      logCost({ promptVersion, model: process.env.LLM_MODEL || 'cache', usage: null, durationMs: 0, repaired: false, cached: true });
-      return res.json(cached);
-    }
-
-    // Real LLM path — prompt is a file, user data in separate message, JSON-encoded
-    // Stage 3: parse + validate, repair once on failure, quarantine on second failure, never raw text
-    try {
-      const systemPrompt = getSystemPrompt();
-      const client = createLlmClient();
-      const model = process.env.LLM_MODEL;
-
-      if (!process.env.LLM_BASE_URL || !process.env.LLM_API_KEY || !model) {
-        return res.status(500).json({ error: 'LLM not configured — set LLM_BASE_URL/API_KEY/MODEL' });
-      }
-
-      // First LLM call — via provider abstraction (bonus: route never knows provider)
-      // complete() uses the same SDK with 3-var swap; swap proves via env change only
-      const first = await complete({ system: systemPrompt, user: text });
-      let raw = first.content ?? '';
-      let usage = first.usage || null;
-      let durationMs = first.duration || 0;
-      let llmRes = { choices: [{ message: { content: raw } }], usage, model: first.model };
-      let result = tryParseAndValidate(raw);
-      let repaired = false;
-      let repairDuration = 0;
-
-      // Repair once if parsing or validation failed
-      if (!result.success) {
-        const errMsg = result.error?.issues ? result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : String(result.error?.message || result.error);
-        const repairSystem = systemPrompt + `\n\nYour previous answer was rejected for this reason: ${errMsg}. Return only corrected JSON matching the schema.`;
-        try {
-          const repair = await callWithRetry(client, {
-            model,
-            messages: [
-              { role: 'system', content: repairSystem },
-              { role: 'user', content: JSON.stringify(text) },
-              { role: 'assistant', content: raw },
-              { role: 'user', content: `Validation error: ${errMsg}. Return only corrected JSON.` },
-            ],
-            temperature: 0,
-          });
-          const repairRes = repair.res;
-          repairDuration = repair.duration;
-          const repairRaw = repairRes.choices?.[0]?.message?.content ?? '';
-          const repairResult = tryParseAndValidate(repairRaw);
-          if (repairResult.success) {
-            result = repairResult;
-            repaired = true;
-            llmRes = repairRes;
-            usage = repairRes.usage || usage;
-            raw = repairRaw;
-          } else {
-            result = repairResult;
-          }
-        } catch (e) {
-          // repair call itself failed — keep original failure
-        }
-        if (!result.success) {
-          quarantine({ input: text, raw_output: raw, validation_error: errMsg, prompt_version: promptVersion });
-          logCost({ promptVersion, model, usage, durationMs: durationMs + repairDuration, repaired, cached: false });
-          return res.status(422).json({ error: 'Invalid model output', details: errMsg });
-        }
-      }
-
-      logCost({ promptVersion, model, usage, durationMs: repaired ? durationMs + repairDuration : durationMs, repaired, cached: false });
-
-      // Bonus cache — store validated result, key includes prompt version (bust on v2)
-      try { cacheSet(text, promptVersion, result.data); } catch (e) {}
-
-      // Success — return clean schema-shaped JSON, never raw text
-      return res.json(result.data);
-    } catch (err) {
-      const status = err.status || 500;
-      if (status === 401) return res.status(500).json({ error: 'LLM auth failed — check LLM_API_KEY' });
-      if (err.name === 'APIConnectionTimeoutError' || status === 504) return res.status(504).json({ error: 'LLM timeout' });
-      if (status === 429) return res.status(429).json({ error: 'LLM rate limited', retry_after: err.headers?.get?.('retry-after') });
-      console.error('LLM call failed', err);
-      return res.status(500).json({ error: 'LLM call failed', details: err.message });
-    }
-  });
-
-  // Stretch extra — real health check: the DB probe runs SELECT 1 through the
+    // Stretch extra — real health check: the DB probe runs SELECT 1 through the
   // repository. Boot fails fast when the DB is down, so a 503 here means the
   // database died after startup — exactly what a deploy gate should catch.
   app.get('/health', async (req, res) => {
