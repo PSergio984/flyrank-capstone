@@ -269,13 +269,91 @@
           }
         }
       }
+    },
+    "/enrich": {
+      "post": {
+        "summary": "Enrich text via LLM",
+        "operationId": "enrichText",
+        "description": "Takes messy text, calls LLM, returns validated enrich JSON. Stub when LLM_STUB=1.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrichRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enriched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "text: text is required and cannot be empty"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Model output failed validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "LLM disabled/not wired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "LLM timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
       "Task": {
         "type": "object",
-        "required": ["id", "title", "done", "created_at", "updated_at"],
+        "required": [
+          "id",
+          "title",
+          "done",
+          "created_at",
+          "updated_at"
+        ],
         "properties": {
           "id": {
             "type": "integer",
@@ -301,7 +379,9 @@
       },
       "CreateTaskRequest": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
           "title": {
             "type": "string",
@@ -325,7 +405,9 @@
       },
       "Error": {
         "type": "object",
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "properties": {
           "error": {
             "type": "string"
@@ -334,7 +416,11 @@
       },
       "Stats": {
         "type": "object",
-        "required": ["total", "done", "open"],
+        "required": [
+          "total",
+          "done",
+          "open"
+        ],
         "properties": {
           "total": {
             "type": "integer",
@@ -347,6 +433,73 @@
           "open": {
             "type": "integer",
             "example": 4
+          }
+        }
+      },
+      "EnrichRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "example": "Buy milk and bread"
+          }
+        }
+      },
+      "EnrichResponse": {
+        "type": "object",
+        "required": [
+          "category",
+          "summary",
+          "confidence",
+          "quality_flags",
+          "needs_review"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "work",
+              "personal",
+              "shopping",
+              "health",
+              "learning",
+              "other"
+            ],
+            "example": "shopping"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 120,
+            "example": "Buy milk and bread"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.9
+          },
+          "quality_flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vague_title",
+                "too_short",
+                "needs_details",
+                "urgent_language",
+                "duplicate_intent"
+              ]
+            },
+            "example": []
+          },
+          "needs_review": {
+            "type": "boolean",
+            "example": false
           }
         }
       }

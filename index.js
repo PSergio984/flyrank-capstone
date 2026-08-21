@@ -10,6 +10,8 @@ const swaggerUi = require('swagger-ui-express');
 const openapi = require('./openapi.json');
 const { createRepository } = require('./repository');
 const { pingRedisOnce } = require('./redis-ping');
+const { inputSchema, outputSchema } = require('./src/llm/schema');
+const { getStubEnrich } = require('./src/llm/stub');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -37,8 +39,39 @@ async function main() {
     res.json({
       name: 'Task API',
       version: '1.0',
-      endpoints: ['/tasks', '/stats', '/reset'],
+      endpoints: ['/tasks', '/stats', '/reset', '/enrich'],
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Stage 1 — POST /enrich (contract before AI). Validates input before spend,
+  // returns schema-valid stub when LLM_STUB=1 (zero model calls). Real LLM wiring
+  // lands in Stage 2; until then non-stub returns 503 so contract stays honest.
+  // -------------------------------------------------------------------------
+  app.post('/enrich', async (req, res) => {
+    const parsed = inputSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      // Name the field — every 400 saves a model call
+      const field = first.path.join('.') || 'text';
+      return res.status(400).json({ error: `${field}: ${first.message}` });
+    }
+
+    const { text } = parsed.data;
+
+    // Stub mode — the 20-restart path that never burns quota (Stage 1)
+    if (process.env.LLM_STUB === '1') {
+      const stub = getStubEnrich(text);
+      // Validate our own stub against the output contract (defense in depth)
+      const checked = outputSchema.safeParse(stub);
+      if (!checked.success) {
+        return res.status(500).json({ error: 'Stub failed output validation' });
+      }
+      return res.json(checked.data);
+    }
+
+    // Non-stub not yet wired (Stage 2 will add real LLM call). Keep honest:
+    return res.status(503).json({ error: 'LLM not wired — set LLM_STUB=1 for stub or wait for Stage 2' });
   });
 
   // Stretch extra — real health check: the DB probe runs SELECT 1 through the

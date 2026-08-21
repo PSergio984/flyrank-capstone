@@ -54,9 +54,22 @@ The repository factory in `repository/index.js` is the single place that reads `
 | `DELETE` | `/tasks/:id` | Delete a task (204 on success, 404 if unknown) |
 | `GET` | `/stats` | Task counts computed in SQL with `COUNT()` |
 | `POST` | `/reset` | Clear the table and restore the three example tasks |
+| `POST` | `/enrich` | Enrich text via LLM — `{"text":"Buy milk"}` → `{category, summary, confidence, quality_flags, needs_review}` (400 if text missing/too long, 503 if LLM not wired, 422 if model bad, 504 on timeout) |
 | `GET` | `/docs` | OpenAPI docs (Swagger UI), spec in `openapi.json` |
 
 All queries are parameterized — values are passed to the driver separately, never glued into SQL strings.
+
+### Try /enrich in 5 seconds (stub — no key, no spend)
+
+```bash
+# valid — LLM_STUB=1 returns schema-valid JSON, zero LLM calls
+LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{"text":"Buy milk and bread"}' | jq
+# -> {"category":"work","summary":"Buy milk and bread","confidence":0.92,"quality_flags":[],"needs_review":false}
+
+# broken — missing field returns 400 naming the field before any model call
+LLM_STUB=1 curl -s -X POST http://localhost:3000/enrich -H "Content-Type: application/json" -d '{}' | jq
+# -> {"error":"text: text is required and cannot be empty"}
+```
 
 ## Example
 
