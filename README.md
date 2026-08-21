@@ -23,6 +23,11 @@ Stop the stack with `docker compose down` (data stays in the `taskdata` volume) 
 |----------|---------|----------|
 | `DATABASE_URL` | `postgres://postgres:dev@localhost:5432/tasks` | Connection string for the repository (compose overrides it with the in-network `db` host) |
 | `PORT` | `3000` | HTTP port for `npm start` outside Docker |
+| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | LLM provider base URL (OpenRouter) or `http://localhost:11434/v1` (Ollama) — 3 vars are the only difference between local & hosted |
+| `LLM_API_KEY` | `sk-or-v1-...` | Provider API key (`ollama` for Ollama) — empty in `.env.example` until you add it |
+| `LLM_MODEL` | `openrouter/free` | Model id (`gemma3:1b` on Ollama) |
+
+`.env` ships with LLM vars empty — `node --env-file=.env src/llm/hello.js` prints `ready` via wiring check; add a real key and it prints a real model reply. The three LLM vars are the **only** difference between a laptop model and a datacentre one — no hard-coded provider.
 
 `.env` is gitignored — a leaked database password is a real incident. Inside Docker the connection comes from `compose.yaml` (service name `db`), not from `.env`; the `.env` values matter for running the app locally with `npm start`.
 
